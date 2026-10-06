@@ -1,0 +1,73 @@
+# Отнесение признаков витрины к узлам-группам DAG (SPEC §6.1).
+#
+# Структура графа живёт в configs/dag.gml, а этот файл отвечает на вопрос
+# «какая колонка витрины относится к какой группе ковариат». Разделение
+# сознательное: добавление нового признака не должно требовать правок кода
+# причинного слоя — достаточно дописать шаблон здесь.
+#
+# Значения — регулярные выражения, проверяемые через re.fullmatch по имени
+# колонки. Группы проверяются в порядке объявления: первое совпадение
+# выигрывает, поэтому более специфичные группы (seasonality, trend) идут
+# раньше более общих (behavior).
+#
+# Признак, не попавший ни в одну группу, не отбрасывается молча: causal/dag.py
+# логирует предупреждение и относит его в fallback_group, иначе ковариата
+# выпала бы из backdoor-множества и оценка ATE стала бы смещённой.
+
+fallback_group: behavior
+
+groups:
+  seasonality:
+    - first_issue_month
+    - first_issue_quarter
+
+  trend:
+    - .*_trend_\d+d
+    - spend_slope_per_day
+    - share_purchases_second_half
+    - basket_trend_\d+d
+    # отношения коротких окон к длинным: 30д/90д, 7д/30д (признаки затухания)
+    - activity_ratio_\d+_\d+
+    - spend_ratio_\d+_\d+
+
+  socdem:
+    - age
+    - age_bin
+    - age_missing
+    - gender_.*
+
+  loyalty:
+    - .*points.*
+    - .*redeem.*
+    - days_since_first_issue
+    - share_transactions_with_redeem
+
+  assortment:
+    - n_unique_.*
+    - own_trademark_share
+    - alcohol_share
+    - avg_netto_per_transaction
+    - categories_per_transaction
+    - assortment_depth_ratio
+    - favorite_.*_freq
+    - favorite_.*
+
+  behavior:
+    - days_since_.*purchase
+    - purchase_history_span_days
+    - n_transactions.*
+    - n_active_days
+    - spend_\d+d
+    - sessions_per_\d+d
+    - avg_days_between_purchases
+    - std_days_between_purchases
+    - total_spend
+    - total_quantity
+    - avg_basket
+    - median_basket
+    - std_basket
+    - max_basket
+    - min_basket
+    - avg_items_per_basket
+    - avg_unique_products_per_basket
+    - has_transactions

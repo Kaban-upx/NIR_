@@ -1,0 +1,32 @@
+# окружение
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# данные (ETL-6: воспроизводятся из make data / make etl)
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+
+# артефакты прогонов
+artifacts/*
+!artifacts/.gitkeep
+
+# отчёты: генерируемые графики и метрики не версионируются,
+# кроме .gitkeep — итоговые выгрузки для ВКР копируются вручную
+reports/*
+!reports/.gitkeep
+
+# ноутбуки: вывод чистим перед коммитом
+.ipynb_checkpoints/
+
+# прочее
+.DS_Store
+mlruns/

@@ -1,0 +1,146 @@
+# Единая точка управления конвейером (SPEC §10).
+# Правило: никаких магических чисел в коде — всё, что влияет на результат, живёт здесь.
+seed: 42
+
+paths:
+  data_dir: data
+  interim_dir: data/interim
+  artifacts_dir: artifacts
+  reports_dir: reports
+
+data:
+  # source: synthetic | retailhero
+  #   synthetic  — детерминированный генератор RetailHero-совместимых таблиц
+  #                с известным истинным tau(x) (используется для sanity-тестов §11);
+  #   retailhero — реальные CSV из data/raw (clients/purchases/products/uplift_train).
+  source: synthetic
+  raw_dir: data/raw
+  processed_path: data/processed/feature_store.parquet
+  quarantine_path: data/interim/quarantine.csv
+  outcome: target # target | revenue
+  outcome_window_days: 7
+  observation_window_days: 180
+  treatment_share: null # null = native; 0.15 = режим дефицитной treatment-группы
+  chunk_size: 200000 # ETL-7: размер чанка при чтении purchases
+  synthetic:
+    n_clients: 40000 # рекомендация SPEC §13: 10–50k на этапах Э1–Э2
+    avg_transactions_per_client: 18.0
+    products_catalog_size: 2000
+    stores_count: 150
+    # сила конфаундинга: 0 = случайное назначение T, 1 = сильная зависимость T от X
+    confounding_strength: 1.0
+    # масштаб истинного эффекта tau(x); базовая вероятность отклика ~0.2
+    uplift_scale: 0.12
+    # доля клиентов со отрицательным эффектом (Sleeping Dogs)
+    sleeping_dogs_share: 0.12
+
+split:
+  test_size: 0.2
+  valid_size: 0.1
+  stratify_on: [treatment, target]
+
+features:
+  corr_threshold: 0.95
+  corr_method: pearson # pearson | spearman
+  scaler: zscore
+  # высококардинальные категории кодируются частотно на train-фолде (ETL-5)
+  high_cardinality: [favorite_store_id, favorite_brand_id]
+  one_hot: [gender]
+  min_covariates: 30 # контракт ETL-6 / критерий приёмки 3
+  # зажатие выбросов; границы квантилей считаются на train (null — выключить)
+  clip_quantiles: [0.001, 0.999]
+  # признаки, которые фильтр мультиколлинеарности не вправе исключить
+  protected: [age, days_since_last_purchase, n_transactions_total, total_spend]
+
+causal:
+  graph: configs/dag.gml
+  # карта «колонка витрины → узел-группа DAG» (§6.1)
+  feature_groups: configs/feature_groups.yaml
+  identification: backdoor
+  estimators: [propensity_score_weighting, linear_regression]
+  # оценка ATE/refuters считается на подвыборке: dowhy не чанкуется,
+  # а линейная регрессия на 30+ ковариатах и ~1e6 строк не укладывается в ML-6
+  estimation_sample: 50000
+  # бутстрэп-итерации dowhy для ДИ и p-value оценки ATE: у propensity-взвешивания
+  # аналитической ошибки нет, каждая итерация — переобучение propensity-модели
+  n_simulations: 50
+  # dowhy-граф разворачивает групповые узлы шаблона в фактические признаки
+  expanded_graph_path: artifacts/dag_expanded.gml
+
+model:
+  lgbm:
+    n_estimators: 500
+    learning_rate: 0.05
+    num_leaves: 31
+    min_child_samples: 50
+    early_stopping_rounds: 50
+    subsample: 0.9
+    subsample_freq: 1
+    colsample_bytree: 0.9
+    reg_lambda: 1.0
+    verbose: -1
+  propensity:
+    n_estimators: 300
+    learning_rate: 0.05
+    num_leaves: 15
+    min_child_samples: 100
+    early_stopping_rounds: 50
+    verbose: -1
+  xlearner:
+    # ML-2: k-fold cross-fitting для устойчивости оценок (1 = без cross-fitting)
+    cross_fitting_folds: 5
+    # риск §14: клиппинг propensity от взрыва весов
+    propensity_clip: [0.01, 0.99]
+    backend: native # native | econml (econml — перекрёстная проверка реализации)
+
+evaluation:
+  uplift_at_k: [0.1, 0.2, 0.3]
+  n_deciles: 10
+  bootstrap:
+    n_iterations: 200
+    confidence: 0.95
+
+refutation:
+  tests: [random_common_cause, placebo_treatment_refuter, data_subset_refuter]
+  p_value_threshold: 0.05
+  sample_size: 20000
+  num_simulations: 20
+  # пороги вердиктов PASS/FAIL (SPEC §6.4)
+  thresholds:
+    # random_common_cause: допустимое относительное отклонение новой оценки от исходной
+    random_common_cause_rel_tol: 0.15
+    # placebo: |effect| должен быть мал относительно исходного ATE
+    placebo_abs_rel_tol: 0.15
+    # data_subset: допустимое относительное отклонение
+    data_subset_rel_tol: 0.15
+  subset_fraction: 0.85 # удаляем 15% данных (SPEC §6.4: 10–20%)
+  add_unobserved_common_cause: false # доп. тест, выключен по умолчанию (дорогой)
+
+segmentation:
+  theta_high: q75
+  theta_low: q25
+  # порог «высокой» базовой вероятности отклика P(Y=1|T=0) для Sure Things
+  control_response_threshold: q50
+
+economics:
+  cost_per_coupon: 100.0
+  avg_margin: 500.0
+  coverage_share: null # null = охват = доля Persuadables
+
+experiment:
+  # режимы дисбаланса для проверки гипотезы §1.3 (критерий приёмки 5)
+  modes:
+    - name: native
+      treatment_share: null
+    - name: scarce_15
+      treatment_share: 0.15
+  models: [random, naive_classifier, s_learner, t_learner, x_learner]
+  target_model: x_learner
+
+tracking:
+  # ML-5: локальный журнал прогонов
+  runs_dir: artifacts/runs
+
+logging:
+  level: INFO
+  file: artifacts/pipeline.log

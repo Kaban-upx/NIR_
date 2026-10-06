@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "causal-uplift-ecommerce"
+version = "0.1.0"
+description = "ИТ-конвейер причинно-следственного анализа и Uplift-моделирования для e-commerce (НИР, МАИ, Институт №8)"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "Lubyagin" }]
+
+# Пины намеренно заданы диапазонами с верхней границей по мажорной версии:
+# точные версии фиксируются в requirements.lock (make lock), окружение
+# воспроизводится из lock-файла одной командой (make env).
+dependencies = [
+  "numpy>=2.0,<3",
+  # pandas 3.x ещё не проверен в связке с econml/dowhy — верхняя граница сознательная (см. docs/architecture.md, §Версии)
+  "pandas>=2.2,<3",
+  "pyarrow>=16,<27",
+  "scipy>=1.13,<2",
+  "scikit-learn>=1.5,<2",
+  "statsmodels>=0.14,<1",
+  "lightgbm>=4.5,<5",
+  "dowhy>=0.12,<1",
+  "econml>=0.15,<1",
+  "networkx>=3.3,<4",
+  "pydantic>=2.8,<3",
+  "PyYAML>=6.0,<7",
+  "matplotlib>=3.8,<4",
+  "seaborn>=0.13,<1",
+  "streamlit>=1.37,<2",
+  "plotly>=5.23",
+  "joblib>=1.4,<2",
+  "tqdm>=4.66,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<10",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pandas-stubs>=2.2",
+  "types-PyYAML>=6.0",
+]
+notebooks = ["jupyterlab>=4.2", "ipykernel>=6.29", "nbformat>=5.10"]
+
+[project.scripts]
+causal-uplift = "causal_uplift.pipeline.run:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/causal_uplift"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",      # pycodestyle + pyflakes
+  "I",                # isort
+  "UP",               # pyupgrade
+  "B",                # bugbear
+  "C4",               # comprehensions
+  "SIM",              # simplify
+  "ARG",              # unused arguments
+  "PTH",              # pathlib
+  "RET",              # return
+  "NPY",              # numpy
+  "PD",               # pandas-vet
+]
+ignore = [
+  "PD901",  # допускаем имя `df`
+  "PD010",  # pivot_table не используется, но правило шумит на unstack
+  "B008",   # вызов в default — нужен для pydantic Field
+  "SIM108", # тернарник не всегда читабельнее
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG001", "ARG002", "E501"]
+"src/causal_uplift/app/dashboard.py" = ["E501"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.13"
+files = ["src/causal_uplift"]
+strict = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+ignore_missing_imports = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["dowhy.*", "econml.*", "lightgbm.*", "streamlit.*", "seaborn.*", "plotly.*", "statsmodels.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "slow: тесты дольше ~30 с (end-to-end, refuters)",
+  "integration: сквозные прогоны пайплайна",
+  "regression: эталонные метрики на фиксированном сиде",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+  "ignore::FutureWarning",
+]
